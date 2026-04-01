@@ -158,6 +158,8 @@ func (e *hostedSparseExtent) ReadAt(p []byte, off int64) (int, error) {
 		return 0, io.EOF
 	}
 
+	origLen := len(p)
+
 	max := e.sizeBytes - uint64(off)
 	if uint64(len(p)) > max {
 		p = p[:max]
@@ -195,8 +197,10 @@ func (e *hostedSparseExtent) ReadAt(p []byte, off int64) (int, error) {
 		read += int(want)
 	}
 
-	if uint64(off)+uint64(read) >= e.sizeBytes {
-		return read, io.EOF
+	// ReadAt contract: if we filled the requested buffer fully, return nil.
+	// Return io.EOF only when request had to be truncated by end-of-image.
+	if len(p) == origLen {
+		return read, nil
 	}
-	return read, nil
+	return read, io.EOF
 }
