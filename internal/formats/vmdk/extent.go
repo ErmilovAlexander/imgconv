@@ -23,8 +23,16 @@ func readAcrossSpans(spans []extentSpan, p []byte, off int64, totalSize uint64) 
 		return 0, io.EOF
 	}
 
+	origLen := len(p)
+
 	read := 0
 	curOff := uint64(off)
+
+	// Если запрос выходит за границу образа, читаем только доступную часть.
+	max := totalSize - uint64(off)
+	if uint64(len(p)) > max {
+		p = p[:max]
+	}
 
 	for read < len(p) && curOff < totalSize {
 		// найти span
@@ -53,9 +61,10 @@ func readAcrossSpans(spans []extentSpan, p []byte, off int64, totalSize uint64) 
 		curOff += uint64(n)
 
 		if err != nil {
-			// если что-то прочли — возвращаем, как обычный io.ReaderAt
-			if read > 0 {
-				return read, err
+			// Если underlying extent уже что-то прочитал, а потом вернул EOF
+			// на точной границе нашего запроса, это не ошибка.
+			if err == io.EOF && read == len(p) {
+				break
 			}
 			return read, err
 		}
@@ -65,8 +74,11 @@ func readAcrossSpans(spans []extentSpan, p []byte, off int64, totalSize uint64) 
 		}
 	}
 
-	if uint64(off)+uint64(read) >= totalSize {
-		return read, io.EOF
+	// Контракт ReaderAt:
+	// - если запрошенный буфер заполнен полностью, вернуть nil
+	// - io.EOF только если запрос пришлось усечь концом образа
+	if len(p) == origLen {
+		return read, nil
 	}
-	return read, nil
+	return read, io.EOF
 }
