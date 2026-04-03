@@ -11,12 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"imgconv/internal/formats/qcow2"
-	"imgconv/internal/formats/vdi"
-	"imgconv/internal/formats/vmdk"
-	"imgconv/internal/image"
-	"imgconv/internal/ops"
-	"imgconv/internal/pipeline"
+	libimg "imgconv/pkg/imgconv"
 )
 
 func main() {
@@ -82,7 +77,7 @@ func cmdInfo(args []string) {
 	fs := flag.NewFlagSet("info", flag.ExitOnError)
 
 	inPath := fs.String("i", "", "input image path")
-	inFmt := fs.String("input-format", "", "input format")
+	inFmtStr := fs.String("input-format", "", "input format")
 	asJSON := fs.Bool("json", false, "print JSON")
 	debug := fs.Bool("debug", false, "enable VMDK debug logging")
 
@@ -93,9 +88,17 @@ func cmdInfo(args []string) {
 		os.Exit(2)
 	}
 
-	vmdk.SetDebug(*debug)
+	inFmt, err := parseFormat(*inFmtStr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "info:", err)
+		os.Exit(2)
+	}
 
-	info, err := image.Inspect(*inPath, *inFmt)
+	libimg.SetVMDKDebug(*debug)
+
+	info, err := libimg.Inspect(*inPath, libimg.InspectOptions{
+		InputFormat: inFmt,
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "info failed:", err)
 		os.Exit(1)
@@ -122,32 +125,34 @@ func cmdConvert(args []string) {
 
 	inPath := fs.String("i", "", "input path")
 	outPath := fs.String("o", "", "output path")
-	inFmt := fs.String("input-format", "", "input format")
-	outFmt := fs.String("format", "raw", "output format: raw|qcow2|vdi|vmdk")
+	inFmtStr := fs.String("input-format", "", "input format")
+	outFmtStr := fs.String("format", "raw", "output format: raw|qcow2|vdi|vmdk")
 	sparse := fs.Bool("sparse", false, "sparse output")
 	threads := fs.Int("threads", runtime.NumCPU(), "worker threads")
-	verify := fs.String("verify", "sample", "verify mode: none|sample|full")
+	verifyStr := fs.String("verify", "sample", "verify mode: none|sample|full")
 	chunkMiB := fs.Int("chunk-mib", 4, "chunk size in MiB")
 	debug := fs.Bool("debug", false, "enable VMDK debug logging")
 
 	_ = fs.Parse(args)
 
-	vmdk.SetDebug(*debug)
-
 	if *inPath == "" || *outPath == "" {
 		fmt.Fprintln(os.Stderr, "convert: -i and -o are required")
 		os.Exit(2)
 	}
-	if *outFmt != "raw" && *outFmt != "qcow2" && *outFmt != "vdi" && *outFmt != "vmdk" {
+
+	inFmt, err := parseFormat(*inFmtStr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "convert:", err)
+		os.Exit(2)
+	}
+	outFmt, err := parseFormat(*outFmtStr)
+	if err != nil || outFmt == libimg.FormatAuto {
 		fmt.Fprintln(os.Stderr, "convert: --format must be raw or qcow2 or vdi or vmdk")
 		os.Exit(2)
 	}
-
-	vm := pipeline.VerifyMode(*verify)
-	switch vm {
-	case pipeline.VerifyNone, pipeline.VerifySample, pipeline.VerifyFull:
-	default:
-		fmt.Fprintln(os.Stderr, "convert: invalid --verify, use none|sample|full")
+	vm, err := parseVerifyMode(*verifyStr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "convert:", err)
 		os.Exit(2)
 	}
 
@@ -156,46 +161,23 @@ func cmdConvert(args []string) {
 		chunkSize = 4 << 20
 	}
 
-	src, err := image.Open(*inPath, *inFmt)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "open input failed:", err)
-		os.Exit(1)
-	}
-	defer src.Reader.Close()
-
-	reopen := func() (pipeline.RangeReader, error) {
-		res, err := image.Open(*inPath, *inFmt)
-		if err != nil {
-			return nil, err
-		}
-		return res.Reader, nil
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	libimg.SetVMDKDebug(*debug)
 
 	start := time.Now()
-
-	if err := pipeline.ConvertRange(ctx, src.Reader, *outPath, pipeline.ConvertRangeOptions{
-		Threads:        *threads,
+	if err := libimg.Convert(context.Background(), libimg.ConvertOptions{
+		InputPath:      *inPath,
+		OutputPath:     *outPath,
+		InputFormat:    inFmt,
+		OutputFormat:   outFmt,
 		Sparse:         *sparse,
+		Threads:        *threads,
 		ChunkSize:      chunkSize,
+		VerifyMode:     vm,
+		VerifySamples:  256,
 		ProgressWriter: os.Stderr,
-		Format:         *outFmt,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "convert failed:", err)
 		os.Exit(1)
-	}
-
-	if vm != pipeline.VerifyNone {
-		if err := pipeline.VerifyRange(ctx, reopen, *outPath, *outFmt, pipeline.VerifyOptions{
-			Mode:         vm,
-			SampleBlocks: 256,
-			ChunkSize:    chunkSize,
-		}); err != nil {
-			fmt.Fprintln(os.Stderr, "verify failed:", err)
-			os.Exit(1)
-		}
 	}
 
 	fmt.Fprintf(os.Stderr, "convert OK in %s\n", time.Since(start).Truncate(10*time.Millisecond))
@@ -205,7 +187,7 @@ func cmdCheck(args []string) {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
 
 	inPath := fs.String("i", "", "input image path")
-	inFmt := fs.String("input-format", "", "input format")
+	inFmtStr := fs.String("input-format", "", "input format")
 	debug := fs.Bool("debug", false, "enable VMDK debug logging")
 
 	_ = fs.Parse(args)
@@ -215,57 +197,30 @@ func cmdCheck(args []string) {
 		os.Exit(2)
 	}
 
-	vmdk.SetDebug(*debug)
-
-	fmtHint, err := image.ParseFormat(*inFmt)
+	inFmt, err := parseFormat(*inFmtStr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "check:", err)
 		os.Exit(2)
 	}
-	if fmtHint == "" {
-		fmtHint = image.DetectFormat(*inPath)
+
+	libimg.SetVMDKDebug(*debug)
+
+	res, err := libimg.Check(*inPath, libimg.CheckOptions{
+		InputFormat: inFmt,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "check failed:", err)
+		os.Exit(1)
 	}
 
-	switch fmtHint {
-	case image.FormatQCOW2:
-		if err := pipeline.CheckQCOW2(*inPath); err != nil {
-			fmt.Fprintln(os.Stderr, "check failed:", err)
-			os.Exit(1)
-		}
-		fmt.Println("qcow2 check: OK")
-
-	case image.FormatVMDK:
-		r, err := vmdk.Open(*inPath)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "check failed:", err)
-			os.Exit(1)
-		}
-		defer r.Close()
-		fmt.Printf("vmdk check: OK\nVirtual size: %d bytes\n", r.Size())
-
-	case image.FormatVDI:
-		if err := pipeline.CheckVDI(*inPath); err != nil {
-			fmt.Fprintln(os.Stderr, "check failed:", err)
-			os.Exit(1)
-		}
-		r, err := vdi.Open(*inPath)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "check failed:", err)
-			os.Exit(1)
-		}
-		defer r.Close()
-		fmt.Printf("vdi check: OK\nVirtual size: %d bytes\n", r.Size())
-
-	default:
-		fmt.Fprintln(os.Stderr, "check: supported formats are qcow2, vmdk and vdi")
-		os.Exit(2)
-	}
+	fmt.Printf("%s check: %s\n", res.Format, res.Status)
+	fmt.Printf("Virtual size: %d bytes\n", res.VirtualSize)
 }
 
 func cmdCreate(args []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 
-	format := fs.String("f", "", "output format: raw|qcow2|vdi|vmdk")
+	formatStr := fs.String("f", "", "output format: raw|qcow2|vdi|vmdk")
 	outPath := fs.String("o", "", "output path")
 	sizeStr := fs.String("size", "", "virtual size, e.g. 64G, 500M, 1048576")
 	sparse := fs.Bool("sparse", true, "create sparse image where supported")
@@ -275,17 +230,13 @@ func cmdCreate(args []string) {
 
 	_ = fs.Parse(args)
 
-	if *format == "" || *outPath == "" || *sizeStr == "" {
+	if *formatStr == "" || *outPath == "" || *sizeStr == "" {
 		fmt.Fprintln(os.Stderr, "create: -f, -o and --size are required")
 		os.Exit(2)
 	}
 
-	f, err := image.ParseFormat(*format)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "create:", err)
-		os.Exit(2)
-	}
-	if f != image.FormatRAW && f != image.FormatQCOW2 && f != image.FormatVDI && f != image.FormatVMDK {
+	f, err := parseFormat(*formatStr)
+	if err != nil || f == libimg.FormatAuto {
 		fmt.Fprintln(os.Stderr, "create: only raw, qcow2, vdi and vmdk are supported")
 		os.Exit(2)
 	}
@@ -296,19 +247,16 @@ func cmdCreate(args []string) {
 		os.Exit(2)
 	}
 
-	w, err := image.Create(*outPath, f, image.CreateOptions{
+	if err := libimg.Create(libimg.CreateOptions{
+		Path:        *outPath,
+		Format:      f,
 		Size:        size,
 		Sparse:      *sparse,
 		ClusterBits: uint32(*clusterBits),
 		BlockSize:   uint32(*blockSize),
 		BackingFile: *backingFile,
-	})
-	if err != nil {
+	}); err != nil {
 		fmt.Fprintln(os.Stderr, "create failed:", err)
-		os.Exit(1)
-	}
-	if err := w.Close(); err != nil {
-		fmt.Fprintln(os.Stderr, "create close failed:", err)
 		os.Exit(1)
 	}
 
@@ -320,9 +268,9 @@ func cmdCompare(args []string) {
 
 	aPath := fs.String("a", "", "image A")
 	bPath := fs.String("b", "", "image B")
-	aFmt := fs.String("input-format-a", "", "format of image A")
-	bFmt := fs.String("input-format-b", "", "format of image B")
-	mode := fs.String("mode", "full", "compare mode: none|sample|full")
+	aFmtStr := fs.String("input-format-a", "", "format of image A")
+	bFmtStr := fs.String("input-format-b", "", "format of image B")
+	modeStr := fs.String("mode", "full", "compare mode: none|sample|full")
 	chunkMiB := fs.Int("chunk-mib", 4, "chunk size in MiB")
 
 	_ = fs.Parse(args)
@@ -332,11 +280,19 @@ func cmdCompare(args []string) {
 		os.Exit(2)
 	}
 
-	vm := pipeline.VerifyMode(*mode)
-	switch vm {
-	case pipeline.VerifyNone, pipeline.VerifySample, pipeline.VerifyFull:
-	default:
-		fmt.Fprintln(os.Stderr, "compare: invalid --mode, use none|sample|full")
+	aFmt, err := parseFormat(*aFmtStr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "compare:", err)
+		os.Exit(2)
+	}
+	bFmt, err := parseFormat(*bFmtStr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "compare:", err)
+		os.Exit(2)
+	}
+	vm, err := parseVerifyMode(*modeStr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "compare:", err)
 		os.Exit(2)
 	}
 
@@ -345,7 +301,11 @@ func cmdCompare(args []string) {
 		chunkSize = 4 << 20
 	}
 
-	if err := ops.ComparePaths(context.Background(), *aPath, *aFmt, *bPath, *bFmt, ops.CompareOptions{
+	if err := libimg.Compare(context.Background(), libimg.CompareOptions{
+		LeftPath:     *aPath,
+		RightPath:    *bPath,
+		LeftFormat:   aFmt,
+		RightFormat:  bFmt,
 		Mode:         vm,
 		SampleBlocks: 256,
 		ChunkSize:    chunkSize,
@@ -375,9 +335,10 @@ func cmdCommit(args []string) {
 		chunkSize = 4 << 20
 	}
 
-	if err := ops.CommitQCOW2Overlay(context.Background(), *inPath, ops.CommitOptions{
-		ChunkSize: chunkSize,
-		Sparse:    true,
+	if err := libimg.Commit(context.Background(), libimg.CommitOptions{
+		OverlayPath: *inPath,
+		ChunkSize:   chunkSize,
+		Sparse:      true,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "commit failed:", err)
 		os.Exit(1)
@@ -399,7 +360,10 @@ func cmdRebase(args []string) {
 		os.Exit(2)
 	}
 
-	if err := qcow2.RebasePath(*inPath, *backingFile); err != nil {
+	if err := libimg.Rebase(libimg.RebaseOptions{
+		OverlayPath: *inPath,
+		BackingFile: *backingFile,
+	}); err != nil {
 		fmt.Fprintln(os.Stderr, "rebase failed:", err)
 		os.Exit(1)
 	}
@@ -420,30 +384,31 @@ func cmdMap(args []string) {
 		os.Exit(2)
 	}
 
-	exts, err := qcow2.MapFile(*inPath)
+	res, err := libimg.Map(libimg.MapOptions{
+		Path:        *inPath,
+		InputFormat: libimg.FormatQCOW2,
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "map failed:", err)
 		os.Exit(1)
 	}
 
 	if *asJSON {
-		if err := qcow2.WriteMapJSON(os.Stdout, exts); err != nil {
-			fmt.Fprintln(os.Stderr, "map output failed:", err)
-			os.Exit(1)
-		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(res.Extents)
 		return
 	}
 
-	if err := qcow2.WriteMapText(os.Stdout, exts); err != nil {
-		fmt.Fprintln(os.Stderr, "map output failed:", err)
-		os.Exit(1)
+	for _, e := range res.Extents {
+		fmt.Printf("%-10s start=%d length=%d\n", e.Kind, e.Start, e.Length)
 	}
 }
 
 func cmdMeasure(args []string) {
 	fs := flag.NewFlagSet("measure", flag.ExitOnError)
 
-	format := fs.String("f", "", "format to measure (currently only qcow2)")
+	formatStr := fs.String("f", "", "format to measure (currently only qcow2)")
 	sizeStr := fs.String("size", "", "virtual size, e.g. 64G")
 	clusterBits := fs.Uint("cluster-bits", 16, "qcow2 cluster bits")
 	backingFile := fs.String("backing-file", "", "optional backing file path")
@@ -451,7 +416,8 @@ func cmdMeasure(args []string) {
 
 	_ = fs.Parse(args)
 
-	if *format != "qcow2" {
+	f, err := parseFormat(*formatStr)
+	if err != nil || f != libimg.FormatQCOW2 {
 		fmt.Fprintln(os.Stderr, "measure: only qcow2 is supported")
 		os.Exit(2)
 	}
@@ -466,7 +432,8 @@ func cmdMeasure(args []string) {
 		os.Exit(2)
 	}
 
-	res, err := qcow2.Measure(qcow2.MeasureOptions{
+	res, err := libimg.Measure(libimg.MeasureOptions{
+		Format:      f,
 		Size:        size,
 		ClusterBits: uint32(*clusterBits),
 		BackingFile: *backingFile,
@@ -498,6 +465,36 @@ func cmdMeasure(args []string) {
 	fmt.Printf("metadata_bytes: %d\n", res.MetadataBytes)
 	if res.BackingFile != "" {
 		fmt.Printf("backing_file: %s\n", res.BackingFile)
+	}
+}
+
+func parseFormat(s string) (libimg.Format, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "auto":
+		return libimg.FormatAuto, nil
+	case string(libimg.FormatRAW):
+		return libimg.FormatRAW, nil
+	case string(libimg.FormatQCOW2):
+		return libimg.FormatQCOW2, nil
+	case string(libimg.FormatVMDK):
+		return libimg.FormatVMDK, nil
+	case string(libimg.FormatVDI):
+		return libimg.FormatVDI, nil
+	default:
+		return libimg.FormatAuto, fmt.Errorf("unsupported format %q", s)
+	}
+}
+
+func parseVerifyMode(s string) (libimg.VerifyMode, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", string(libimg.VerifyNone):
+		return libimg.VerifyNone, nil
+	case string(libimg.VerifySample):
+		return libimg.VerifySample, nil
+	case string(libimg.VerifyFull):
+		return libimg.VerifyFull, nil
+	default:
+		return libimg.VerifyNone, fmt.Errorf("invalid verify mode %q", s)
 	}
 }
 
