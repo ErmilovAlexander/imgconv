@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 
-	"imgconv/internal/formats/qcow2"
-	"imgconv/internal/formats/raw"
-	"imgconv/internal/formats/vdi"
-	"imgconv/internal/formats/vmdk"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/raw"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/vdi"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/vmdk"
 )
 
 type VerifyMode string

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	libimg "imgconv/pkg/imgconv"
+	libimg "github.com/ErmilovAlexander/imgconv/pkg/imgconv"
 )
 
 func main() {

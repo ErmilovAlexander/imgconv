@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
 )
 
 func Map(opts MapOptions) (*MapResult, error) {

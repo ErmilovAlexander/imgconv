@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"imgconv/internal/formats/qcow2"
-	"imgconv/internal/ops"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/ops"
 )
 
 func Commit(ctx context.Context, opts CommitOptions) error {

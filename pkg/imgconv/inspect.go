@@ -3,7 +3,7 @@ package imgconv
 import (
 	"fmt"
 
-	"imgconv/internal/image"
+	"github.com/ErmilovAlexander/imgconv/internal/image"
 )
 
 func Inspect(path string, opts InspectOptions) (*Info, error) {

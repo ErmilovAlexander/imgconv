@@ -3,10 +3,10 @@ package imgconv
 import (
 	"fmt"
 
-	"imgconv/internal/formats/vdi"
-	"imgconv/internal/formats/vmdk"
-	"imgconv/internal/image"
-	"imgconv/internal/pipeline"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/vdi"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/vmdk"
+	"github.com/ErmilovAlexander/imgconv/internal/image"
+	"github.com/ErmilovAlexander/imgconv/internal/pipeline"
 )
 
 func Check(path string, opts CheckOptions) (*CheckResult, error) {

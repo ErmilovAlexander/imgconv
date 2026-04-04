@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"imgconv/internal/ops"
-	"imgconv/internal/pipeline"
+	"github.com/ErmilovAlexander/imgconv/internal/ops"
+	"github.com/ErmilovAlexander/imgconv/internal/pipeline"
 )
 
 func Compare(ctx context.Context, opts CompareOptions) error {

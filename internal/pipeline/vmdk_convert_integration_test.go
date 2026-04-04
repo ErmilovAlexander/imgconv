@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"imgconv/internal/formats/raw"
-	"imgconv/internal/formats/vmdk"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/raw"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/vmdk"
 )
 
 func TestConvertRawToVMDKAndVerify(t *testing.T) {

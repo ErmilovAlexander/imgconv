@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
 )
 
 func TestCommitQCOW2Overlay(t *testing.T) {

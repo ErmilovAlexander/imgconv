@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"imgconv/internal/image"
-	"imgconv/internal/pipeline"
+	"github.com/ErmilovAlexander/imgconv/internal/image"
+	"github.com/ErmilovAlexander/imgconv/internal/pipeline"
 )
 
 func Convert(ctx context.Context, opts ConvertOptions) error {

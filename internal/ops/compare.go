@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	"imgconv/internal/image"
-	"imgconv/internal/pipeline"
+	"github.com/ErmilovAlexander/imgconv/internal/image"
+	"github.com/ErmilovAlexander/imgconv/internal/pipeline"
 )
 
 type CompareOptions struct {

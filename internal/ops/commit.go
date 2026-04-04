@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"imgconv/internal/formats/qcow2"
-	"imgconv/internal/image"
-	"imgconv/internal/pipeline"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/image"
+	"github.com/ErmilovAlexander/imgconv/internal/pipeline"
 )
 
 type CommitOptions struct {

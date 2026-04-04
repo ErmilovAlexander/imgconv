@@ -3,8 +3,8 @@ package pipeline
 import (
 	"fmt"
 
-	"imgconv/internal/formats/qcow2"
-	"imgconv/internal/formats/vdi"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/vdi"
 )
 
 func CheckQCOW2(path string) error {

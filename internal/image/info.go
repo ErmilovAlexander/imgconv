@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"imgconv/internal/formats/qcow2"
-	"imgconv/internal/formats/vdi"
-	"imgconv/internal/formats/vmdk"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/vdi"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/vmdk"
 )
 
 type Info struct {

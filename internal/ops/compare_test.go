@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"imgconv/internal/formats/qcow2"
-	"imgconv/internal/pipeline"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/pipeline"
 )
 
 func TestCompareRawAndQCOW2(t *testing.T) {

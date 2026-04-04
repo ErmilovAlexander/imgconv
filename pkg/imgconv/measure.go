@@ -3,7 +3,7 @@ package imgconv
 import (
 	"fmt"
 
-	"imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
 )
 
 func Measure(opts MeasureOptions) (*MeasureResult, error) {
