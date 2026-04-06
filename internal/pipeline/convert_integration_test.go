@@ -197,6 +197,85 @@ func TestConvertVDIToQCOW2AndVerify(t *testing.T) {
 	}
 }
 
+func TestConvertRawToQCOW2UsesClusterBits(t *testing.T) {
+	dir := t.TempDir()
+
+	rawPath := filepath.Join(dir, "src.raw")
+	qcowPath := filepath.Join(dir, "out.qcow2")
+
+	srcData := make([]byte, 1<<20)
+	copy(srcData[0:16], []byte("cluster-bits-test"))
+	if err := os.WriteFile(rawPath, srcData, 0o644); err != nil {
+		t.Fatalf("write raw: %v", err)
+	}
+
+	in, err := raw.Open(rawPath)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	defer in.Close()
+
+	if err := ConvertRange(context.Background(), in, qcowPath, ConvertRangeOptions{
+		Threads:     2,
+		Sparse:      true,
+		ChunkSize:   64 << 10,
+		Format:      "qcow2",
+		ClusterBits: 17,
+	}); err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+
+	r, err := qcow2.Open(qcowPath)
+	if err != nil {
+		t.Fatalf("open qcow2: %v", err)
+	}
+	defer r.Close()
+
+	if got := r.ClusterBits(); got != 17 {
+		t.Fatalf("cluster bits = %d want %d", got, 17)
+	}
+}
+
+func TestConvertRawToVDIUsesBlockSize(t *testing.T) {
+	dir := t.TempDir()
+
+	rawPath := filepath.Join(dir, "src.raw")
+	vdiPath := filepath.Join(dir, "out.vdi")
+
+	srcData := make([]byte, 3<<20)
+	copy(srcData[0:16], []byte("block-size-test1"))
+	copy(srcData[2<<20:2<<20+16], []byte("block-size-test2"))
+	if err := os.WriteFile(rawPath, srcData, 0o644); err != nil {
+		t.Fatalf("write raw: %v", err)
+	}
+
+	in, err := raw.Open(rawPath)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	defer in.Close()
+
+	if err := ConvertRange(context.Background(), in, vdiPath, ConvertRangeOptions{
+		Threads:   2,
+		Sparse:    true,
+		ChunkSize: 64 << 10,
+		Format:    "vdi",
+		BlockSize: 2 << 20,
+	}); err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+
+	r, err := vdi.Open(vdiPath)
+	if err != nil {
+		t.Fatalf("open vdi: %v", err)
+	}
+	defer r.Close()
+
+	if got := r.BlockSize(); got != 2<<20 {
+		t.Fatalf("block size = %d want %d", got, 2<<20)
+	}
+}
+
 func itoa(v int) string {
 	if v == 0 {
 		return "0"

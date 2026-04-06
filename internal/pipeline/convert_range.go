@@ -19,6 +19,8 @@ type ConvertRangeOptions struct {
 	Threads        int
 	Sparse         bool
 	ChunkSize      uint64
+	ClusterBits    uint32
+	BlockSize      uint32
 	ProgressWriter io.Writer
 	Format         string // "raw" | "qcow2" | "vdi" | "vmdk"
 }
@@ -32,6 +34,12 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 	}
 	if opts.ChunkSize == 0 {
 		opts.ChunkSize = 4 << 20
+	}
+	if opts.ClusterBits == 0 {
+		opts.ClusterBits = 16
+	}
+	if opts.BlockSize == 0 {
+		opts.BlockSize = 1 << 20
 	}
 	if opts.Format == "" {
 		opts.Format = "raw"
@@ -51,7 +59,7 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 
 	case "qcow2":
 		w, err := qcow2.Create(outPath, in.Size(), qcow2.WriterOptions{
-			ClusterBits: 16,
+			ClusterBits: opts.ClusterBits,
 			Sparse:      opts.Sparse,
 		})
 		if err != nil {
@@ -62,7 +70,7 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 
 	case "vdi":
 		w, err := vdi.Create(outPath, in.Size(), vdi.WriterOptions{
-			BlockSize: 1 << 20,
+			BlockSize: opts.BlockSize,
 			Sparse:    opts.Sparse,
 		})
 		if err != nil {
