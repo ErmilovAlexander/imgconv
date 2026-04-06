@@ -34,3 +34,13 @@ func Rebase(opts RebaseOptions) error {
 
 	return nil
 }
+
+func RecoverCommit(overlayPath string) error {
+	if overlayPath == "" {
+		return fmt.Errorf("%w: empty overlay path", ErrInvalidArgument)
+	}
+	if err := ops.RecoverCommitState(overlayPath); err != nil {
+		return fmt.Errorf("%w: recover commit %q: %v", ErrOperationFailed, overlayPath, err)
+	}
+	return nil
+}

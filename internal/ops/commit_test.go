@@ -3,6 +3,7 @@ package ops
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -103,5 +104,65 @@ func TestCommitQCOW2Overlay(t *testing.T) {
 	}
 	if !bytes.Equal(buf, override) {
 		t.Fatalf("overlay chain read mismatch after commit/reset")
+	}
+
+	if _, err := os.Stat(overlayPath + ".imgconv-commit-inprogress"); !os.IsNotExist(err) {
+		t.Fatalf("commit marker should be removed, stat err=%v", err)
+	}
+}
+
+func TestRecoverCommitState(t *testing.T) {
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "base.qcow2")
+	overlayPath := filepath.Join(dir, "overlay.qcow2")
+
+	baseW, err := qcow2.Create(basePath, 8<<20, qcow2.WriterOptions{
+		ClusterBits: 16,
+		Sparse:      true,
+	})
+	if err != nil {
+		t.Fatalf("create base: %v", err)
+	}
+	if err := baseW.Close(); err != nil {
+		t.Fatalf("close base: %v", err)
+	}
+
+	overlayW, err := qcow2.Create(overlayPath, 8<<20, qcow2.WriterOptions{
+		ClusterBits: 16,
+		Sparse:      true,
+		BackingFile: "base.qcow2",
+	})
+	if err != nil {
+		t.Fatalf("create overlay: %v", err)
+	}
+	if err := overlayW.Close(); err != nil {
+		t.Fatalf("close overlay: %v", err)
+	}
+
+	marker := overlayPath + ".imgconv-commit-inprogress"
+	if err := os.WriteFile(marker, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+	staleTmpOverlay := overlayPath + ".imgconv-reset-tmp"
+	if err := os.WriteFile(staleTmpOverlay, []byte("tmp"), 0o644); err != nil {
+		t.Fatalf("write tmp overlay: %v", err)
+	}
+	staleTmpBacking := basePath + ".imgconv-commit-tmp"
+	if err := os.WriteFile(staleTmpBacking, []byte("tmp"), 0o644); err != nil {
+		t.Fatalf("write tmp backing: %v", err)
+	}
+
+	if err := RecoverCommitState(overlayPath); err != nil {
+		t.Fatalf("recover commit state: %v", err)
+	}
+
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("marker not removed, err=%v", err)
+	}
+	if _, err := os.Stat(staleTmpOverlay); !os.IsNotExist(err) {
+		t.Fatalf("tmp overlay not removed, err=%v", err)
+	}
+	if _, err := os.Stat(staleTmpBacking); !os.IsNotExist(err) {
+		t.Fatalf("tmp backing not removed, err=%v", err)
 	}
 }

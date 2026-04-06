@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
 	"github.com/ErmilovAlexander/imgconv/internal/image"
@@ -51,6 +52,18 @@ func CommitQCOW2Overlay(ctx context.Context, overlayPath string, opts CommitOpti
 	}
 	defer src.Reader.Close()
 
+	markerPath := overlayPath + ".imgconv-commit-inprogress"
+	if err := os.WriteFile(markerPath, []byte(time.Now().UTC().Format(time.RFC3339Nano)), 0o644); err != nil {
+		return fmt.Errorf("create commit marker: %w", err)
+	}
+	defer os.Remove(markerPath)
+	if err := syncFile(markerPath); err != nil {
+		return fmt.Errorf("sync commit marker: %w", err)
+	}
+	if err := syncDir(filepath.Dir(markerPath)); err != nil {
+		return fmt.Errorf("sync marker directory: %w", err)
+	}
+
 	tmpBacking := backingPath + ".imgconv-commit-tmp"
 	_ = os.Remove(tmpBacking)
 
@@ -70,6 +83,10 @@ func CommitQCOW2Overlay(ctx context.Context, overlayPath string, opts CommitOpti
 		_ = os.Remove(tmpBacking)
 		return fmt.Errorf("close temp backing: %w", err)
 	}
+	if err := syncFile(tmpBacking); err != nil {
+		_ = os.Remove(tmpBacking)
+		return fmt.Errorf("sync temp backing: %w", err)
+	}
 
 	if err := ComparePaths(ctx, overlayPath, "qcow2", tmpBacking, string(backingFmt), CompareOptions{
 		Mode:      pipeline.VerifyFull,
@@ -82,6 +99,9 @@ func CommitQCOW2Overlay(ctx context.Context, overlayPath string, opts CommitOpti
 	if err := os.Rename(tmpBacking, backingPath); err != nil {
 		_ = os.Remove(tmpBacking)
 		return fmt.Errorf("replace backing: %w", err)
+	}
+	if err := syncDir(filepath.Dir(backingPath)); err != nil {
+		return fmt.Errorf("sync backing directory: %w", err)
 	}
 
 	// Reset overlay to an empty overlay pointing to the same backing path.
@@ -101,12 +121,56 @@ func CommitQCOW2Overlay(ctx context.Context, overlayPath string, opts CommitOpti
 		_ = os.Remove(tmpOverlay)
 		return fmt.Errorf("close recreated overlay: %w", err)
 	}
+	if err := syncFile(tmpOverlay); err != nil {
+		_ = os.Remove(tmpOverlay)
+		return fmt.Errorf("sync recreated overlay: %w", err)
+	}
 
 	if err := os.Rename(tmpOverlay, overlayPath); err != nil {
 		_ = os.Remove(tmpOverlay)
 		return fmt.Errorf("replace overlay: %w", err)
 	}
+	if err := syncDir(filepath.Dir(overlayPath)); err != nil {
+		return fmt.Errorf("sync overlay directory: %w", err)
+	}
 
+	return nil
+}
+
+func RecoverCommitState(overlayPath string) error {
+	if overlayPath == "" {
+		return fmt.Errorf("recover: empty overlay path")
+	}
+
+	markerPath := overlayPath + ".imgconv-commit-inprogress"
+	if _, err := os.Stat(markerPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	// Best-effort cleanup of stale temporary files.
+	_ = os.Remove(overlayPath + ".imgconv-reset-tmp")
+
+	if ovr, err := qcow2.Open(overlayPath); err == nil {
+		backingRel := ovr.BackingFile()
+		_ = ovr.Close()
+		if backingRel != "" {
+			backingPath := backingRel
+			if !filepath.IsAbs(backingRel) {
+				backingPath = filepath.Join(filepath.Dir(overlayPath), backingRel)
+			}
+			_ = os.Remove(backingPath + ".imgconv-commit-tmp")
+		}
+	}
+
+	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := syncDir(filepath.Dir(overlayPath)); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -139,4 +203,22 @@ func copyReaderToWriter(ctx context.Context, src pipeline.RangeReader, dst pipel
 	}
 
 	return nil
+}
+
+func syncFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
+}
+
+func syncDir(path string) error {
+	d, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
