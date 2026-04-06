@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"runtime"
 	"strconv"
@@ -158,9 +159,10 @@ func cmdConvert(args []string) {
 		os.Exit(2)
 	}
 
-	chunkSize := uint64(*chunkMiB) << 20
-	if chunkSize == 0 {
-		chunkSize = 4 << 20
+	chunkSize, err := parseChunkSizeMiB(*chunkMiB)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "convert:", err)
+		os.Exit(2)
 	}
 	if *clusterBits == 0 {
 		fmt.Fprintln(os.Stderr, "convert: --cluster-bits must be > 0")
@@ -308,9 +310,10 @@ func cmdCompare(args []string) {
 		os.Exit(2)
 	}
 
-	chunkSize := uint64(*chunkMiB) << 20
-	if chunkSize == 0 {
-		chunkSize = 4 << 20
+	chunkSize, err := parseChunkSizeMiB(*chunkMiB)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "compare:", err)
+		os.Exit(2)
 	}
 
 	if err := libimg.Compare(context.Background(), libimg.CompareOptions{
@@ -342,9 +345,10 @@ func cmdCommit(args []string) {
 		os.Exit(2)
 	}
 
-	chunkSize := uint64(*chunkMiB) << 20
-	if chunkSize == 0 {
-		chunkSize = 4 << 20
+	chunkSize, err := parseChunkSizeMiB(*chunkMiB)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "commit:", err)
+		os.Exit(2)
 	}
 
 	if err := libimg.Commit(context.Background(), libimg.CommitOptions{
@@ -541,5 +545,15 @@ func parseSize(s string) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("bad size %q", s)
 	}
+	if v > math.MaxUint64/mult {
+		return 0, fmt.Errorf("size %q overflows uint64", s)
+	}
 	return v * mult, nil
+}
+
+func parseChunkSizeMiB(miB int) (uint64, error) {
+	if miB <= 0 {
+		return 0, fmt.Errorf("--chunk-mib must be > 0")
+	}
+	return uint64(miB) << 20, nil
 }
