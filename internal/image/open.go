@@ -1,7 +1,10 @@
 package image
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -45,6 +48,14 @@ func ParseFormat(s string) (Format, error) {
 }
 
 func DetectFormat(path string) Format {
+	if f := detectFormatByHeader(path); f != "" {
+		return f
+	}
+
+	return detectFormatByExtension(path)
+}
+
+func detectFormatByExtension(path string) Format {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".qcow2":
 		return FormatQCOW2
@@ -57,6 +68,36 @@ func DetectFormat(path string) Format {
 	default:
 		return FormatRAW
 	}
+}
+
+func detectFormatByHeader(path string) Format {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	buf := make([]byte, 1024)
+	n, err := f.Read(buf)
+	if err != nil || n == 0 {
+		return ""
+	}
+	buf = buf[:n]
+
+	if len(buf) >= 4 && binary.BigEndian.Uint32(buf[:4]) == 0x514649fb {
+		return FormatQCOW2
+	}
+	if len(buf) >= 68 && binary.LittleEndian.Uint32(buf[64:68]) == 0xBEDA107F {
+		return FormatVDI
+	}
+	if len(buf) >= 4 && binary.LittleEndian.Uint32(buf[:4]) == 0x564D444B {
+		return FormatVMDK
+	}
+	if bytes.Contains(bytes.ToLower(buf), []byte("disk descriptorfile")) {
+		return FormatVMDK
+	}
+
+	return ""
 }
 
 func Open(path string, hint string) (*OpenResult, error) {
