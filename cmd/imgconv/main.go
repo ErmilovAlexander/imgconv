@@ -50,7 +50,7 @@ func usage() {
 
 Usage:
   imgconv info -i <image> [--input-format raw|qcow2|vmdk|vdi] [--json] [--debug]
-  imgconv convert -i <input> -o <output> [--input-format raw|qcow2|vmdk|vdi] --format raw|qcow2|vdi|vmdk [--sparse] [--threads N] [--chunk-mib N] [--verify none|sample|full] [--debug]
+  imgconv convert -i <input> -o <output> [--input-format raw|qcow2|vmdk|vdi] --format raw|qcow2|vdi|vmdk [--sparse] [--threads N] [--chunk-mib N] [--cluster-bits N] [--block-size N] [--verify none|sample|full] [--debug]
   imgconv check -i <image> [--input-format qcow2|vmdk|vdi] [--debug]
   imgconv create -f raw|qcow2|vdi|vmdk -o <output> --size <SIZE> [--sparse] [--cluster-bits N] [--block-size N] [--backing-file PATH]
   imgconv compare -a <imageA> -b <imageB> [--input-format-a raw|qcow2|vmdk|vdi] [--input-format-b raw|qcow2|vmdk|vdi] [--mode none|sample|full] [--chunk-mib N]
@@ -131,6 +131,8 @@ func cmdConvert(args []string) {
 	threads := fs.Int("threads", runtime.NumCPU(), "worker threads")
 	verifyStr := fs.String("verify", "sample", "verify mode: none|sample|full")
 	chunkMiB := fs.Int("chunk-mib", 4, "chunk size in MiB")
+	clusterBits := fs.Uint("cluster-bits", 16, "qcow2 cluster bits for qcow2 output")
+	blockSize := fs.Uint("block-size", 1<<20, "vdi block size in bytes for vdi output")
 	debug := fs.Bool("debug", false, "enable VMDK debug logging")
 
 	_ = fs.Parse(args)
@@ -160,6 +162,14 @@ func cmdConvert(args []string) {
 	if chunkSize == 0 {
 		chunkSize = 4 << 20
 	}
+	if *clusterBits == 0 {
+		fmt.Fprintln(os.Stderr, "convert: --cluster-bits must be > 0")
+		os.Exit(2)
+	}
+	if *blockSize == 0 {
+		fmt.Fprintln(os.Stderr, "convert: --block-size must be > 0")
+		os.Exit(2)
+	}
 
 	libimg.SetVMDKDebug(*debug)
 
@@ -172,6 +182,8 @@ func cmdConvert(args []string) {
 		Sparse:         *sparse,
 		Threads:        *threads,
 		ChunkSize:      chunkSize,
+		ClusterBits:    uint32(*clusterBits),
+		BlockSize:      uint32(*blockSize),
 		VerifyMode:     vm,
 		VerifySamples:  256,
 		ProgressWriter: os.Stderr,

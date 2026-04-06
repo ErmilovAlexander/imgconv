@@ -50,6 +50,8 @@ type ConvertOptions struct {
 	Sparse         bool
 	Threads        int
 	ChunkSize      uint64
+	ClusterBits    uint32
+	BlockSize      uint32
 	VerifyMode     VerifyMode
 	VerifySamples  int
 	ProgressWriter io.Writer
