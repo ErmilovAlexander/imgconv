@@ -30,6 +30,7 @@ func Measure(opts MeasureOptions) (*MeasureResult, error) {
 			VirtualSize:           m.VirtualSize,
 			ClusterBits:           m.ClusterBits,
 			ClusterSize:           m.ClusterSize,
+			BlockSize:             0,
 			L1Entries:             m.L1Entries,
 			L1Clusters:            m.L1Clusters,
 			MaxDataClusters:       m.MaxDataClusters,
@@ -42,7 +43,48 @@ func Measure(opts MeasureOptions) (*MeasureResult, error) {
 			BackingFile:           m.BackingFile,
 		}, nil
 
+	case FormatRAW:
+		return &MeasureResult{
+			Format:          FormatRAW,
+			VirtualSize:     opts.Size,
+			ClusterBits:     0,
+			ClusterSize:     0,
+			BlockSize:       0,
+			MetadataClusters: 0,
+			MetadataBytes:   0,
+		}, nil
+
+	case FormatVDI:
+		blockSize := opts.BlockSize
+		if blockSize == 0 {
+			blockSize = 1 << 20
+		}
+		if blockSize%4096 != 0 {
+			return nil, fmt.Errorf("%w: vdi block size must be multiple of 4096", ErrInvalidArgument)
+		}
+		blocks := opts.Size / uint64(blockSize)
+		if opts.Size%uint64(blockSize) != 0 {
+			blocks++
+		}
+		entriesBytes := blocks * 4
+		dataOffset := uint64(512) + entriesBytes
+		if rem := dataOffset % 4096; rem != 0 {
+			dataOffset += 4096 - rem
+		}
+		metadataBytes := dataOffset
+
+		return &MeasureResult{
+			Format:        FormatVDI,
+			VirtualSize:   opts.Size,
+			ClusterBits:   0,
+			ClusterSize:   0,
+			BlockSize:     blockSize,
+			L1Entries:     0,
+			L1Clusters:    0,
+			MetadataBytes: metadataBytes,
+		}, nil
+
 	default:
-		return nil, fmt.Errorf("%w: measure currently supports only qcow2", ErrUnsupportedFormat)
+		return nil, fmt.Errorf("%w: measure currently supports qcow2, raw and vdi", ErrUnsupportedFormat)
 	}
 }

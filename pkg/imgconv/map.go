@@ -2,9 +2,9 @@ package imgconv
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/ErmilovAlexander/imgconv/internal/formats/qcow2"
+	"github.com/ErmilovAlexander/imgconv/internal/image"
 )
 
 func Map(opts MapOptions) (*MapResult, error) {
@@ -14,17 +14,7 @@ func Map(opts MapOptions) (*MapResult, error) {
 
 	format := opts.InputFormat
 	if format == FormatAuto {
-		lower := strings.ToLower(opts.Path)
-		switch {
-		case strings.HasSuffix(lower, ".qcow2"):
-			format = FormatQCOW2
-		case strings.HasSuffix(lower, ".vmdk"):
-			format = FormatVMDK
-		case strings.HasSuffix(lower, ".vdi"):
-			format = FormatVDI
-		default:
-			format = FormatRAW
-		}
+		format = Format(image.DetectFormat(opts.Path))
 	}
 
 	switch format {
@@ -49,7 +39,25 @@ func Map(opts MapOptions) (*MapResult, error) {
 			Extents: out,
 		}, nil
 
+	case FormatRAW, FormatVDI, FormatVMDK:
+		r, err := image.Open(opts.Path, string(format))
+		if err != nil {
+			return nil, fmt.Errorf("%w: map %q: %v", ErrOperationFailed, opts.Path, err)
+		}
+		defer r.Reader.Close()
+		return &MapResult{
+			Format: format,
+			Path:   opts.Path,
+			Extents: []MapExtent{
+				{
+					Start:  0,
+					Length: r.Size,
+					Kind:   "data",
+				},
+			},
+		}, nil
+
 	default:
-		return nil, fmt.Errorf("%w: map currently supports only qcow2", ErrUnsupportedFormat)
+		return nil, fmt.Errorf("%w: map supports qcow2, raw, vdi and vmdk", ErrUnsupportedFormat)
 	}
 }

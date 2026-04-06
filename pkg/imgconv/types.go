@@ -110,6 +110,7 @@ type MeasureOptions struct {
 	Format      Format
 	Size        uint64
 	ClusterBits uint32
+	BlockSize   uint32
 	BackingFile string
 }
 
@@ -118,6 +119,7 @@ type MeasureResult struct {
 	VirtualSize           uint64 `json:"virtual_size"`
 	ClusterBits           uint32 `json:"cluster_bits"`
 	ClusterSize           uint64 `json:"cluster_size"`
+	BlockSize             uint32 `json:"block_size,omitempty"`
 	L1Entries             uint32 `json:"l1_entries"`
 	L1Clusters            uint64 `json:"l1_clusters"`
 	MaxDataClusters       uint64 `json:"max_data_clusters"`

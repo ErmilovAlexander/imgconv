@@ -118,8 +118,24 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 		off  uint64
 		want uint64
 	}
+	type writeJob struct {
+		off uint64
+		buf []byte
+		n   int
+	}
 	jobs := make(chan job, opts.Threads*4)
+	writes := make(chan writeJob, opts.Threads*2)
 	errCh := make(chan error, 1)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	setErr := func(e error) {
+		select {
+		case errCh <- e:
+			cancel()
+		default:
+		}
+	}
 
 	var pool = sync.Pool{
 		New: func() any {
@@ -127,7 +143,21 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 		},
 	}
 
-	var writeMu sync.Mutex
+	var writeWG sync.WaitGroup
+	writeWG.Add(1)
+	go func() {
+		defer writeWG.Done()
+		for wj := range writes {
+			_, e := out.WriteAt(wj.buf[:wj.n], int64(wj.off))
+			if e != nil {
+				pool.Put(wj.buf)
+				setErr(fmt.Errorf("writeat off=%d: %w", wj.off, e))
+				return
+			}
+			pg.AddDone(uint64(wj.n))
+			pool.Put(wj.buf)
+		}
+	}()
 
 	var wg sync.WaitGroup
 	worker := func() {
@@ -146,13 +176,14 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 			n, e := in.ReadAt(b, int64(j.off))
 			if e != nil && e != io.EOF {
 				pool.Put(buf)
-				select {
-				case errCh <- fmt.Errorf("readat off=%d: %w", j.off, e):
-				default:
-				}
+				setErr(fmt.Errorf("readat off=%d: %w", j.off, e))
 				return
 			}
 			b = b[:n]
+			if n == 0 {
+				pool.Put(buf)
+				continue
+			}
 
 			if opts.Format == "raw" && opts.Sparse && isAllZero(b) {
 				pg.AddDone(uint64(n))
@@ -160,20 +191,16 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 				continue
 			}
 
-			writeMu.Lock()
-			_, e = out.WriteAt(b, int64(j.off))
-			writeMu.Unlock()
-			if e != nil {
+			select {
+			case <-ctx.Done():
 				pool.Put(buf)
-				select {
-				case errCh <- fmt.Errorf("writeat off=%d: %w", j.off, e):
-				default:
-				}
 				return
+			case writes <- writeJob{
+				off: j.off,
+				buf: buf,
+				n:   n,
+			}:
 			}
-
-			pg.AddDone(uint64(n))
-			pool.Put(buf)
 		}
 	}
 
@@ -199,6 +226,8 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 	}()
 
 	wg.Wait()
+	close(writes)
+	writeWG.Wait()
 
 	select {
 	case e := <-errCh:
