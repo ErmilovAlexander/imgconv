@@ -57,7 +57,7 @@ Usage:
   imgconv compare -a <imageA> -b <imageB> [--input-format-a raw|qcow2|vmdk|vdi] [--input-format-b raw|qcow2|vmdk|vdi] [--mode none|sample|full] [--chunk-mib N]
   imgconv commit -i <overlay.qcow2> [--chunk-mib N]
   imgconv rebase -i <overlay.qcow2> --backing-file <PATH>
-  imgconv map -i <qcow2> [--json]
+  imgconv map -i <image> [--input-format raw|qcow2|vmdk|vdi] [--json]
   imgconv measure -f qcow2|raw|vdi --size <SIZE> [--cluster-bits N] [--block-size N] [--backing-file PATH] [--json]
 
 Examples:
@@ -70,6 +70,7 @@ Examples:
   imgconv commit -i overlay.qcow2
   imgconv rebase -i overlay.qcow2 --backing-file newbase.qcow2
   imgconv map -i overlay.qcow2 --json
+  imgconv map -i disk.vmdk --input-format vmdk --json
   imgconv measure -f qcow2 --size 500G --cluster-bits 16 --json
 `)
 }
@@ -390,7 +391,8 @@ func cmdRebase(args []string) {
 func cmdMap(args []string) {
 	fs := flag.NewFlagSet("map", flag.ExitOnError)
 
-	inPath := fs.String("i", "", "qcow2 image path")
+	inPath := fs.String("i", "", "input image path")
+	inFmtStr := fs.String("input-format", "", "input format")
 	asJSON := fs.Bool("json", false, "print JSON")
 
 	_ = fs.Parse(args)
@@ -400,9 +402,15 @@ func cmdMap(args []string) {
 		os.Exit(2)
 	}
 
+	inFmt, err := parseFormat(*inFmtStr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "map:", err)
+		os.Exit(2)
+	}
+
 	res, err := libimg.Map(libimg.MapOptions{
 		Path:        *inPath,
-		InputFormat: libimg.FormatQCOW2,
+		InputFormat: inFmt,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "map failed:", err)
