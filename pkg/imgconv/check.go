@@ -39,6 +39,9 @@ func Check(path string, opts CheckOptions) (*CheckResult, error) {
 		}, nil
 
 	case image.FormatVMDK:
+		if err := pipeline.CheckVMDK(path); err != nil {
+			return nil, fmt.Errorf("%w: vmdk check %q: %v", ErrOperationFailed, path, err)
+		}
 		r, err := vmdk.Open(path)
 		if err != nil {
 			return nil, fmt.Errorf("%w: vmdk open %q: %v", ErrOperationFailed, path, err)

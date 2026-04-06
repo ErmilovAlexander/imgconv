@@ -50,14 +50,14 @@ func usage() {
 
 Usage:
   imgconv info -i <image> [--input-format raw|qcow2|vmdk|vdi] [--json] [--debug]
-  imgconv convert -i <input> -o <output> [--input-format raw|qcow2|vmdk|vdi] --format raw|qcow2|vdi|vmdk [--sparse] [--threads N] [--chunk-mib N] [--verify none|sample|full] [--debug]
+  imgconv convert -i <input> -o <output> [--input-format raw|qcow2|vmdk|vdi] --format raw|qcow2|vdi|vmdk [--sparse] [--threads N] [--chunk-mib N] [--cluster-bits N] [--block-size N] [--verify none|sample|full] [--debug]
   imgconv check -i <image> [--input-format qcow2|vmdk|vdi] [--debug]
   imgconv create -f raw|qcow2|vdi|vmdk -o <output> --size <SIZE> [--sparse] [--cluster-bits N] [--block-size N] [--backing-file PATH]
   imgconv compare -a <imageA> -b <imageB> [--input-format-a raw|qcow2|vmdk|vdi] [--input-format-b raw|qcow2|vmdk|vdi] [--mode none|sample|full] [--chunk-mib N]
   imgconv commit -i <overlay.qcow2> [--chunk-mib N]
   imgconv rebase -i <overlay.qcow2> --backing-file <PATH>
   imgconv map -i <qcow2> [--json]
-  imgconv measure -f qcow2 --size <SIZE> [--cluster-bits N] [--backing-file PATH] [--json]
+  imgconv measure -f qcow2|raw|vdi --size <SIZE> [--cluster-bits N] [--block-size N] [--backing-file PATH] [--json]
 
 Examples:
   imgconv create -f qcow2 -o base.qcow2 --size 64G
@@ -131,6 +131,8 @@ func cmdConvert(args []string) {
 	threads := fs.Int("threads", runtime.NumCPU(), "worker threads")
 	verifyStr := fs.String("verify", "sample", "verify mode: none|sample|full")
 	chunkMiB := fs.Int("chunk-mib", 4, "chunk size in MiB")
+	clusterBits := fs.Uint("cluster-bits", 16, "qcow2 cluster bits for qcow2 output")
+	blockSize := fs.Uint("block-size", 1<<20, "vdi block size in bytes for vdi output")
 	debug := fs.Bool("debug", false, "enable VMDK debug logging")
 
 	_ = fs.Parse(args)
@@ -160,6 +162,14 @@ func cmdConvert(args []string) {
 	if chunkSize == 0 {
 		chunkSize = 4 << 20
 	}
+	if *clusterBits == 0 {
+		fmt.Fprintln(os.Stderr, "convert: --cluster-bits must be > 0")
+		os.Exit(2)
+	}
+	if *blockSize == 0 {
+		fmt.Fprintln(os.Stderr, "convert: --block-size must be > 0")
+		os.Exit(2)
+	}
 
 	libimg.SetVMDKDebug(*debug)
 
@@ -172,6 +182,8 @@ func cmdConvert(args []string) {
 		Sparse:         *sparse,
 		Threads:        *threads,
 		ChunkSize:      chunkSize,
+		ClusterBits:    uint32(*clusterBits),
+		BlockSize:      uint32(*blockSize),
 		VerifyMode:     vm,
 		VerifySamples:  256,
 		ProgressWriter: os.Stderr,
@@ -408,17 +420,18 @@ func cmdMap(args []string) {
 func cmdMeasure(args []string) {
 	fs := flag.NewFlagSet("measure", flag.ExitOnError)
 
-	formatStr := fs.String("f", "", "format to measure (currently only qcow2)")
+	formatStr := fs.String("f", "", "format to measure (qcow2|raw|vdi)")
 	sizeStr := fs.String("size", "", "virtual size, e.g. 64G")
 	clusterBits := fs.Uint("cluster-bits", 16, "qcow2 cluster bits")
+	blockSize := fs.Uint("block-size", 1<<20, "vdi block size in bytes")
 	backingFile := fs.String("backing-file", "", "optional backing file path")
 	asJSON := fs.Bool("json", false, "print JSON")
 
 	_ = fs.Parse(args)
 
 	f, err := parseFormat(*formatStr)
-	if err != nil || f != libimg.FormatQCOW2 {
-		fmt.Fprintln(os.Stderr, "measure: only qcow2 is supported")
+	if err != nil || (f != libimg.FormatQCOW2 && f != libimg.FormatRAW && f != libimg.FormatVDI) {
+		fmt.Fprintln(os.Stderr, "measure: supported formats are qcow2, raw and vdi")
 		os.Exit(2)
 	}
 	if *sizeStr == "" {
@@ -436,6 +449,7 @@ func cmdMeasure(args []string) {
 		Format:      f,
 		Size:        size,
 		ClusterBits: uint32(*clusterBits),
+		BlockSize:   uint32(*blockSize),
 		BackingFile: *backingFile,
 	})
 	if err != nil {
@@ -454,6 +468,9 @@ func cmdMeasure(args []string) {
 	fmt.Printf("virtual_size: %d\n", res.VirtualSize)
 	fmt.Printf("cluster_bits: %d\n", res.ClusterBits)
 	fmt.Printf("cluster_size: %d\n", res.ClusterSize)
+	if res.BlockSize != 0 {
+		fmt.Printf("block_size: %d\n", res.BlockSize)
+	}
 	fmt.Printf("l1_entries: %d\n", res.L1Entries)
 	fmt.Printf("l1_clusters: %d\n", res.L1Clusters)
 	fmt.Printf("max_data_clusters: %d\n", res.MaxDataClusters)
