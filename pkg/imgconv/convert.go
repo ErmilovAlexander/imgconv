@@ -37,6 +37,8 @@ func Convert(ctx context.Context, opts ConvertOptions) error {
 		Threads:        opts.Threads,
 		Sparse:         opts.Sparse,
 		ChunkSize:      opts.ChunkSize,
+		ClusterBits:    opts.ClusterBits,
+		BlockSize:      opts.BlockSize,
 		ProgressWriter: opts.ProgressWriter,
 		Format:         string(opts.OutputFormat),
 	}); err != nil {

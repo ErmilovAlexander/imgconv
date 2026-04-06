@@ -9,6 +9,7 @@ func TestRebasePath(t *testing.T) {
 	dir := t.TempDir()
 
 	basePath := filepath.Join(dir, "base.qcow2")
+	otherBasePath := filepath.Join(dir, "other-base.qcow2")
 	overlayPath := filepath.Join(dir, "overlay.qcow2")
 
 	baseW, err := Create(basePath, 8<<20, WriterOptions{
@@ -20,6 +21,17 @@ func TestRebasePath(t *testing.T) {
 	}
 	if err := baseW.Close(); err != nil {
 		t.Fatalf("close base: %v", err)
+	}
+
+	otherBaseW, err := Create(otherBasePath, 8<<20, WriterOptions{
+		ClusterBits: 16,
+		Sparse:      true,
+	})
+	if err != nil {
+		t.Fatalf("create other base: %v", err)
+	}
+	if err := otherBaseW.Close(); err != nil {
+		t.Fatalf("close other base: %v", err)
 	}
 
 	overlayW, err := Create(overlayPath, 8<<20, WriterOptions{
