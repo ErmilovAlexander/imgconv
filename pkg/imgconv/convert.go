@@ -40,7 +40,16 @@ func Convert(ctx context.Context, opts ConvertOptions) error {
 		ClusterBits:    opts.ClusterBits,
 		BlockSize:      opts.BlockSize,
 		ProgressWriter: opts.ProgressWriter,
-		Format:         string(opts.OutputFormat),
+		ProgressFunc: func(done, total uint64, percent float64) {
+			if opts.Progress != nil {
+				opts.Progress(ProgressInfo{
+					DoneBytes:  done,
+					TotalBytes: total,
+					Percent:    percent,
+				})
+			}
+		},
+		Format: string(opts.OutputFormat),
 	}); err != nil {
 		return fmt.Errorf("%w: convert %q -> %q: %v", ErrOperationFailed, opts.InputPath, opts.OutputPath, err)
 	}
@@ -62,6 +71,39 @@ func Convert(ctx context.Context, opts ConvertOptions) error {
 		}); err != nil {
 			return fmt.Errorf("%w: verify output %q: %v", ErrOperationFailed, opts.OutputPath, err)
 		}
+	}
+
+	return nil
+}
+
+func ConvertToRawWriter(ctx context.Context, opts ConvertToRawWriterOptions) error {
+	if opts.InputPath == "" {
+		return fmt.Errorf("%w: empty input path", ErrInvalidArgument)
+	}
+	if opts.Output == nil {
+		return fmt.Errorf("%w: nil output writer", ErrInvalidArgument)
+	}
+
+	src, err := image.Open(opts.InputPath, string(opts.InputFormat))
+	if err != nil {
+		return fmt.Errorf("%w: open input %q: %v", ErrOperationFailed, opts.InputPath, err)
+	}
+	defer src.Reader.Close()
+
+	if err := pipeline.ConvertToRawWriter(ctx, src.Reader, opts.Output, pipeline.StreamRawOptions{
+		ChunkSize:      opts.ChunkSize,
+		ProgressWriter: opts.ProgressWriter,
+		ProgressFunc: func(done, total uint64, percent float64) {
+			if opts.Progress != nil {
+				opts.Progress(ProgressInfo{
+					DoneBytes:  done,
+					TotalBytes: total,
+					Percent:    percent,
+				})
+			}
+		},
+	}); err != nil {
+		return fmt.Errorf("%w: convert %q -> raw stream: %v", ErrOperationFailed, opts.InputPath, err)
 	}
 
 	return nil
