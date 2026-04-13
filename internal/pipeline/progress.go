@@ -3,22 +3,31 @@ package pipeline
 import (
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 )
+
+type ProgressCallback func(doneBytes, totalBytes uint64, percent float64)
 
 type Progress struct {
 	totalBytes uint64
 	doneBytes  atomic.Uint64
 	start      time.Time
 	lastPrint  time.Time
+
+	callback   ProgressCallback
+	callbackMu sync.Mutex
+	lastCBAt   time.Time
+	lastCBPct  float64
 }
 
-func NewProgress(totalBytes uint64) *Progress {
+func NewProgress(totalBytes uint64, cb ProgressCallback) *Progress {
 	return &Progress{
 		totalBytes: totalBytes,
 		start:      time.Now(),
 		lastPrint:  time.Now(),
+		callback:   cb,
 	}
 }
 
@@ -59,10 +68,37 @@ func (p *Progress) Eta() time.Duration {
 	return time.Duration(remain/speed) * time.Second
 }
 
+func (p *Progress) maybeCallback(force bool) {
+	if p.callback == nil {
+		return
+	}
+
+	done := p.Done()
+	total := p.totalBytes
+	pct := p.Percent()
+	now := time.Now()
+
+	p.callbackMu.Lock()
+	defer p.callbackMu.Unlock()
+
+	if !force {
+		if !p.lastCBAt.IsZero() &&
+			now.Sub(p.lastCBAt) < 150*time.Millisecond &&
+			pct < 100 &&
+			(pct-p.lastCBPct) < 0.25 {
+			return
+		}
+	}
+
+	p.lastCBAt = now
+	p.lastCBPct = pct
+	p.callback(done, total, pct)
+}
+
 func (p *Progress) Render(w io.Writer, force bool) {
 	now := time.Now()
-	// не флудим: 5 раз в секунду максимум, если не force
 	if !force && now.Sub(p.lastPrint) < 200*time.Millisecond {
+		p.maybeCallback(false)
 		return
 	}
 	p.lastPrint = now
@@ -73,14 +109,18 @@ func (p *Progress) Render(w io.Writer, force bool) {
 	speed := p.SpeedBytesPerSec()
 	eta := p.Eta()
 
-	fmt.Fprintf(w,
-		"\rProgress: %6.2f%%  %s / %s  %s/s  ETA %s",
-		pct,
-		humanBytes(done),
-		humanBytes(total),
-		humanBytes(uint64(speed)),
-		humanDuration(eta),
-	)
+	if w != nil {
+		fmt.Fprintf(w,
+			"\rProgress: %6.2f%%  %s / %s  %s/s  ETA %s",
+			pct,
+			humanBytes(done),
+			humanBytes(total),
+			humanBytes(uint64(speed)),
+			humanDuration(eta),
+		)
+	}
+
+	p.maybeCallback(force)
 }
 
 func humanBytes(b uint64) string {

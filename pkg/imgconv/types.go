@@ -20,6 +20,14 @@ const (
 	VerifyFull   VerifyMode = "full"
 )
 
+type ProgressInfo struct {
+	DoneBytes  uint64
+	TotalBytes uint64
+	Percent    float64
+}
+
+type ProgressFunc func(ProgressInfo)
+
 type Info struct {
 	Path        string         `json:"path"`
 	Format      Format         `json:"format"`
@@ -55,6 +63,16 @@ type ConvertOptions struct {
 	VerifyMode     VerifyMode
 	VerifySamples  int
 	ProgressWriter io.Writer
+	Progress       ProgressFunc
+}
+
+type ConvertToRawWriterOptions struct {
+	InputPath      string
+	InputFormat    Format
+	Output         io.Writer
+	ChunkSize      uint64
+	ProgressWriter io.Writer
+	Progress       ProgressFunc
 }
 
 type CompareOptions struct {

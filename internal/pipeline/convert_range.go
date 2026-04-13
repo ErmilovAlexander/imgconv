@@ -22,7 +22,8 @@ type ConvertRangeOptions struct {
 	ClusterBits    uint32
 	BlockSize      uint32
 	ProgressWriter io.Writer
-	Format         string // "raw" | "qcow2" | "vdi" | "vmdk"
+	ProgressFunc   ProgressCallback
+	Format         string
 }
 
 func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts ConvertRangeOptions) error {
@@ -95,7 +96,7 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 	defer outClose()
 
 	size := in.Size()
-	pg := NewProgress(size)
+	pg := NewProgress(size, opts.ProgressFunc)
 
 	doneCh := make(chan struct{})
 	go func() {
@@ -107,7 +108,9 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 				pg.Render(opts.ProgressWriter, false)
 			case <-doneCh:
 				pg.Render(opts.ProgressWriter, true)
-				fmt.Fprint(opts.ProgressWriter, "\n")
+				if opts.ProgressWriter != nil {
+					fmt.Fprint(opts.ProgressWriter, "\n")
+				}
 				return
 			}
 		}
@@ -123,9 +126,11 @@ func ConvertRange(ctx context.Context, in RangeReader, outPath string, opts Conv
 		buf []byte
 		n   int
 	}
+
 	jobs := make(chan job, opts.Threads*4)
 	writes := make(chan writeJob, opts.Threads*2)
 	errCh := make(chan error, 1)
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

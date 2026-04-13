@@ -27,7 +27,10 @@ func Create(opts CreateOptions) error {
 	if err != nil {
 		return fmt.Errorf("%w: create %q: %v", ErrOperationFailed, opts.Path, err)
 	}
-	defer w.Close()
+
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("%w: finalize create %q: %v", ErrOperationFailed, opts.Path, err)
+	}
 
 	return nil
 }
