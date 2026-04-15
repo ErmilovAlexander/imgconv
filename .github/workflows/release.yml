@@ -25,6 +25,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v6
